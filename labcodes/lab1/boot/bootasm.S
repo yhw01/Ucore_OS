@@ -5,56 +5,76 @@
 # memory at physical address 0x7c00 and starts executing in real mode
 # with %cs=0 %ip=7c00.
 
+# 内核代码段
 .set PROT_MODE_CSEG,        0x8                     # kernel code segment selector
+# 数据段的选择子
 .set PROT_MODE_DSEG,        0x10                    # kernel data segment selector
+#切换到保护模式时的使能标志
 .set CR0_PE_ON,             0x1                     # protected mode enable flag
 
 # start address should be 0:7c00, in real mode, the beginning address of the running bootloader
 .globl start
 start:
+# 16位实模式
 .code16                                             # Assemble for 16-bit mode
+# 关闭终端 避免产生中断被BIOS中断处理程序处理
     cli                                             # Disable interrupts
+# 从低地址到高地址
     cld                                             # String operations increment
 
     # Set up the important data segment registers (DS, ES, SS).
+    # 初始化段寄存器,各段寄存器基址设为0
     xorw %ax, %ax                                   # Segment number zero
     movw %ax, %ds                                   # -> Data Segment
     movw %ax, %es                                   # -> Extra Segment
     movw %ax, %ss                                   # -> Stack Segment
 
+# 开启A20
     # Enable A20:
     #  For backwards compatibility with the earliest PCs, physical
     #  address line 20 is tied low, so that addresses higher than
     #  1MB wrap around to zero by default. This code undoes this.
+# 等待8042芯片位空闲状态
 seta20.1:
+    # 循环读取8042的状态寄存器到CPU寄存器al,判断al是否为0x2来实现
     inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
     testb $0x2, %al
     jnz seta20.1
 
+    # 发送Write 8042 Output Port (P2) 命令到8042 Inpur buffer中
     movb $0xd1, %al                                 # 0xd1 -> port 0x64
     outb %al, $0x64                                 # 0xd1 means: write data to 8042's P2 port
 
+# 再度等待8042 Input buffer 为空
 seta20.2:
     inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
     testb $0x2, %al
     jnz seta20.2
 
+    # 将8042 Output Port (P2)得到字节的第2位置1,然后写入8042 Inpur buffer
     movb $0xdf, %al                                 # 0xdf -> port 0x60
     outb %al, $0x60                                 # 0xdf = 11011111, means set P2's A20 bit(the 1 bit) to 1
 
+# A20开启完毕
+
+# 开启保护模式
     # Switch from real to protected mode, using a bootstrap GDT
     # and segment translation that makes virtual addresses
     # identical to physical addresses, so that the
     # effective memory map does not change during the switch.
+    # 将GDT信息写入GDTR
     lgdt gdtdesc
     movl %cr0, %eax
     orl $CR0_PE_ON, %eax
+    # 打开保护模式
     movl %eax, %cr0
 
     # Jump to next instruction, but in 32-bit code segment.
     # Switches processor into 32-bit mode.
+    # 进入到保护模式后,ljmp指令重新初始化代码寄存器CS的值
     ljmp $PROT_MODE_CSEG, $protcseg
 
+# 段寄存器指向内核数据段
 .code32                                             # Assemble for 32-bit mode
 protcseg:
     # Set up the protected-mode data segment registers
@@ -65,6 +85,7 @@ protcseg:
     movw %ax, %gs                                   # -> GS
     movw %ax, %ss                                   # -> SS: Stack Segment
 
+    # 使用call加载kernel
     # Set up the stack pointer and call into C. The stack region is from 0--start(0x7c00)
     movl $0x0, %ebp
     movl $start, %esp
@@ -74,6 +95,7 @@ protcseg:
 spin:
     jmp spin
 
+# 设置GDT表 4字节对齐 定义GDT[0](空段)、GDT[1](内核代码段)、GDT[2](内核数据段)
 # Bootstrap GDT
 .p2align 2                                          # force 4 byte alignment
 gdt:
@@ -82,5 +104,5 @@ gdt:
     SEG_ASM(STA_W, 0x0, 0xffffffff)                 # data seg for bootloader and kernel
 
 gdtdesc:
-    .word 0x17                                      # sizeof(gdt) - 1
-    .long gdt                                       # address gdt
+    .word 0x17                                      # sizeof(gdt) - 1 GDT边界,三个段,共3 * 8 = 24 B,值为24 - 1 = 23 (0x17)
+    .long gdt                                       # address gdt GDT基址,长度32

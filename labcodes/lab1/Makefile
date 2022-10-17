@@ -144,8 +144,11 @@ $(kernel): tools/kernel.ld
 
 $(kernel): $(KOBJS)
 	@echo + ld $@
+# 将一些二进制文件进行链接
 	$(V)$(LD) $(LDFLAGS) -T tools/kernel.ld -o $@ $(KOBJS)
+# 移除所有符号和重定位信息
 	@$(OBJDUMP) -S $@ > $(call asmfile,kernel)
+# 输出目标文件的符号表
 	@$(OBJDUMP) -t $@ | $(SED) '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(call symfile,kernel)
 
 $(call create_target,kernel)
@@ -158,11 +161,16 @@ $(foreach f,$(bootfiles),$(call cc_compile,$(f),$(CC),$(CFLAGS) -Os -nostdinc))
 
 bootblock = $(call totarget,bootblock)
 
+# 为了生成bootblock，首先需要生成bootasm.o、bootmain.o、sign
+# 将sign.c编译并链接为sign
 $(bootblock): $(call toobj,$(bootfiles)) | $(call totarget,sign)
 	@echo + ld $@
+# 将bootasm.o、bootmain.o链接为bootblock.o
 	$(V)$(LD) $(LDFLAGS) -N -e start -Ttext 0x7C00 $^ -o $(call toobj,bootblock)
 	@$(OBJDUMP) -S $(call objfile,bootblock) > $(call asmfile,bootblock)
+# 拷贝二进制代码bootblock.o到bootblock.out，并进行符号重定位。
 	@$(OBJCOPY) -S -O binary $(call objfile,bootblock) $(call outfile,bootblock)
+# 利用sign工具处理bootblock.out生成bootblock
 	@$(call totarget,sign) $(call outfile,bootblock) $(bootblock)
 
 $(call create_target,bootblock)
@@ -178,10 +186,14 @@ $(call create_target_host,sign,sign)
 # create ucore.img
 UCOREIMG	:= $(call totarget,ucore.img)
 
+# 生成ucore.img的相关代码为
+# 说明生成ucore.img需要依赖kernel和bootblock
 $(UCOREIMG): $(kernel) $(bootblock)
 	$(V)dd if=/dev/zero of=$@ count=10000
 	$(V)dd if=$(bootblock) of=$@ conv=notrunc
 	$(V)dd if=$(kernel) of=$@ seek=1 conv=notrunc
+
+# 为了生成ucore.img，首先需要生成bootblock、kernel
 
 $(call create_target,ucore.img)
 
@@ -217,6 +229,7 @@ qemu-nox: $(UCOREIMG)
 	$(V)$(QEMU)   -no-reboot -serial mon:stdio -hda $< -nographic
 TERMINAL        :=gnome-terminal
 debug: $(UCOREIMG)
+# 通过tools/gdbinit配置文件中的命令进行gdb调试
 	$(V)$(QEMU) -S -s -parallel stdio -hda $< -serial null &
 	$(V)sleep 2
 	$(V)$(TERMINAL) -e "gdb -q -tui -x tools/gdbinit"

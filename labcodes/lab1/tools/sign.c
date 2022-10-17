@@ -19,6 +19,7 @@ main(int argc, char *argv[]) {
         fprintf(stderr, "%lld >> 510!!\n", (long long)st.st_size);
         return -1;
     }
+// 引导扇区共512个字节
     char buf[512];
     memset(buf, 0, sizeof(buf));
     FILE *ifp = fopen(argv[1], "rb");
@@ -28,6 +29,7 @@ main(int argc, char *argv[]) {
         return -1;
     }
     fclose(ifp);
+// 第510个字节为0x55；第511个字节为0xAA
     buf[510] = 0x55;
     buf[511] = 0xAA;
     FILE *ofp = fopen(argv[2], "wb+");

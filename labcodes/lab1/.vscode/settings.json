@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "kmonitor.h": "c",
+        "defs.h": "c"
+    }
+}

@@ -8,6 +8,8 @@
 #include <assert.h>
 #include <console.h>
 #include <kdebug.h>
+#include <string.h>
+
 
 #define TICK_NUM 100
 
@@ -46,6 +48,20 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+    extern uintptr_t __vectors[];
+    int i;
+    for (i = 0; i < sizeof(idt) / sizeof(struct gatedesc); i ++) {
+        //在IDT中建立中断描述符，其中存储了中断处理例程的代码段GD_KTEXT和偏移量__vectors[i]，特权级为DPL_KERNEL。
+        //这样通过查询idt[i]就可定位到中断服务例程的起始地址。
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+    }
+	// set for switch from user to kernel
+    // 为系统调用中断设置用户态权限(DPL3)
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+	// load the IDT
+    // 载入LDT，将LDT存入LDTR中
+    lidt(&idt_pd);
+     
 }
 
 static const char *
@@ -134,6 +150,45 @@ print_regs(struct pushregs *regs) {
     cprintf("  eax  0x%08x\n", regs->reg_eax);
 }
 
+/* temporary trapframe or pointer to trapframe */
+struct trapframe switchk2u, *switchu2k;
+static struct trapframe *saved_tf;
+
+static inline __attribute__((always_inline)) void switch_to_user(struct trapframe *tf) {
+    if (tf->tf_cs != USER_CS) {
+        // tf->tf_cs = USER_CS;
+        // tf->tf_ds = tf->tf_es = tf->tf_ss = USER_DS;
+        // tf->tf_eflags |= FL_IOPL_MASK;
+        // tf->tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8
+        
+        switchk2u = *tf;
+
+        switchk2u.tf_cs = USER_CS;
+        switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
+        switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+    
+        // set eflags, make sure ucore can use io under user mode.
+        // if CPL > IOPL, then cpu will generate a general protection.
+        switchk2u.tf_eflags |= FL_IOPL_MASK;
+    
+        // set temporary stack
+        // then iret will jump to the right stack
+        *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        }
+}
+
+static inline __attribute__((always_inline)) void switch_to_kernel(struct trapframe *tf) {
+    if (tf->tf_cs != KERNEL_CS) {
+        tf->tf_cs = KERNEL_CS;
+        tf->tf_ds = tf->tf_es = KERNEL_DS;
+        tf->tf_eflags &= ~FL_IOPL_MASK;
+        switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+
+        memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+        *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
+    }
+}
+
 /* trap_dispatch - dispatch based on what type of trap occurred */
 static void
 trap_dispatch(struct trapframe *tf) {
@@ -147,6 +202,10 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        ticks = ticks + 1;
+        if (ticks % TICK_NUM == 0){
+            print_ticks();
+        }
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
@@ -155,11 +214,27 @@ trap_dispatch(struct trapframe *tf) {
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
         cprintf("kbd [%03d] %c\n", c, c);
+
+        if (c == '0') {
+            //切换为内核态
+            switch_to_kernel(tf);
+            print_trapframe(tf);
+        } else if (c == '3') {
+            //切换为用户态
+            switch_to_user(tf);
+            print_trapframe(tf);
+        }
         break;
     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
     case T_SWITCH_TOU:
+        if (tf->tf_cs != USER_CS) {
+            switch_to_user(tf);
+        }
+        break;
     case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        if (tf->tf_cs != KERNEL_CS) {
+            switch_to_kernel(tf);
+        }
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:

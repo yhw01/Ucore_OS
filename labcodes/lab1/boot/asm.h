@@ -4,10 +4,13 @@
 /* Assembler macros to create x86 segments */
 
 /* Normal segment */
+// 生成两个字（每个字2字节）长度的数0；生成4个字节的数0
 #define SEG_NULLASM                                             \
     .word 0, 0;                                                 \
     .byte 0, 0, 0, 0
 
+// 两个word分别为0xffff（段描述符0-15位）和0x0000(段描述符16-31位)
+// 四个byte分别为0x00，0x90，0xcf、0x00(段描述符高位)
 #define SEG_ASM(type,base,lim)                                  \
     .word (((lim) >> 12) & 0xffff), ((base) & 0xffff);          \
     .byte (((base) >> 16) & 0xff), (0x90 | (type)),             \

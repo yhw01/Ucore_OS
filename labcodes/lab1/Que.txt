@@ -1,0 +1,101 @@
+1.ucore.img是一个包含了bootloader和OS的硬盘镜像。kernel即内核，一个用来管理软件
+发出的资料I/O（输入与输出）要求的电脑程序，将这些要求转译为资料处理的指令并交由中
+央处理器（CPU）及电脑中其他电子组件进行处理。bootloader即引导加载器，一个用来通电
+后自检并引导装载操作系统或其他系统软件的计算机程序。ucore.img的生成实际上也是在生
+成这两个程序。ucore.img生成的步骤：
+(1)：调用gcc将部分.c和.s文件编译成目标文件
+kern/init目录：init.c（系统初始化部分）
+kern/libs目录：stdio.c、readline.c（公共库部分）
+kern/debug目录：panic.c、kdebug.c、kmonitor.c（内核调试部分）
+kern/driver目录：clock.c、console.c、picirq.c、intr.c（外设驱动部分）
+kern/trap目录：trap.c、vectors.S、trapentry.S（中断处理部分）
+kern/mm目录：pmm.c（内存管理部分）
+(2)：通过ld，将目标文件链接。生成kernel可执行文件
+(3)：编译并链接生成bootloader
+(4)：生成OS镜像文件
+dd是一个Unix和类Unix系统上的命令，主要功能为转换和复制文件，这里使用dd来生成最终的ucore
+镜像文件，块大小（bs）默认为512B。
+2.硬盘主引导扇区的特征：
+大小为512字节，第511个字节设为0x55，第512个字节设为0xAA，其他字节填充为0。
+3.qemu调试：
+make lab1-mon：调试
+make debug：qemu不会在gdb尚未连接的时候擅自运行
+x/10i $pc:看pc后面的10条指令
+target remote localhost:1234:qemu和gdb之间使用网络端口1234进行通讯
+next:单步到程序源代码的下一行，不进入函数。
+nexti:单步一条机器指令，不进入函数。
+step:单步到下一个不同的源代码行（包括进入函数）。
+stepi:单步一条机器指令。
+4.启动过程：
+CPU从0xFFFFFFF0(CS=0xF000,IP=0xFFF0)-跳转->BIOS程序起始点，BIOS完成
+计算机硬件自检和初始化，选择一个启动设备，读取该设备的第一个扇区（主引导扇区）
+到内存的0x7c00处-跳转到0x7c00->继续执行。
+5.gdbinit文件解析：
+原先：
+file bin/kernel // 加载kernel，即加载符号信息
+target remote :1234 // 对qemu进行连接
+break kern_init // 将断点设在内核代码的入口函数
+continue
+单步调试：
+set architecture i8086 //CPU以16位实模式启动
+target remote :1234 //对qeum进行连接
+自己找一个bootloader或内核代码：
+file obj/bootblock.o
+target remote :1234
+break bootmain
+continue
+6.bootloader需要完成的工作：
+切换到保护模式，启用分段机制；读磁盘中ELF执行文件格式的ucore操作系统到内存；
+显示字符串信息；将控制权交给ucore操作系统。
+7.使用A20的原因：
+8086为16条总线，80386为36条总线，为了实现兼容，实模式下8086的高20条总线恒为0。
+进入到80386是打开A20。
+8.分段存储管理机制
+包括逻辑地址、段描述符（描述段的属性）、段描述符表（包含多个段描述符的数组）、
+段选择子（段寄存器，用于定位段描述符表中表项的索引）。
+段描述符部分：
+（1）段基址：规定线性空间中段的起始地址
+（2）段属性：确定段的各种性质，包括粒度位、类型、段存在位、已访问位
+段描述符表：全局段描述符表（GDT）
+9.地址空间：
+（1）逻辑地址空间：程序员编程所用到的地址空间
+（2）物理地址空间：CPU、内存硬件和各种外设的实际地址
+（3）启动分段机制，未启动分页机制：逻辑地址–> (分段地址转换) -->线性地址==物理地址
+（4）启动分段机制，启动分页机制：逻辑地址–> (分段地址转换) -->线性地址–>(分页地址转换) -->物理地址
+10.保护模型下的特权级：
+（1）CPL：当前特权级，当前活动代码段的特权级。
+（2）DPL描述符特权：描述对应段所属的特权等级。
+（3）请求特权级，说明进程对段访问的请求权限。
+11.读取扇区的大致流程：
+(1)等待磁盘准备好。
+(2)发出读取扇区的命令。
+(3)等待磁盘准备好。
+(4)把磁盘扇区数据读到指定内存。
+12.ELF文件：
+#define ELF_MAGIC    0x464C457FU            // "\x7FELF" in little endian  ELF魔数，小端存储
+/* ELF文件头 */
+struct elfhdr {
+    uint32_t e_magic;     // ELF魔数，7f 45 4c 46
+    uint8_t  e_elf[12];    // ELF格式信息，32/64位，大端/小端存储
+    uint16_t e_type;      // 1=relocatable, 2=executable, 3=shared object, 4=core image
+    uint16_t e_machine;   // ELF体系结构类型，3=x86, 4=68K, etc.
+    uint32_t e_version;   // 文件版本，总为1
+    uint32_t e_entry;     // 可执行程序入口虚拟地址
+    uint32_t e_phoff;     // 程序头在文件内的字节偏移量
+    uint32_t e_shoff;     // 节头表在文件内的字节偏移量
+    uint32_t e_flags;     // 处理器相关标识，通常为0
+    uint16_t e_ehsize;    // ELF header文件头字节大小
+    uint16_t e_phentsize; // 程序头每个条目(entry)的字节大小
+    uint16_t e_phnum;     // 程序头条目数量，即段的个数
+    uint16_t e_shentsize; // 节头表每个条目(entry)的字节大小
+    uint16_t e_shnum;     // 节头表中条目的数量，即节的个数
+    uint16_t e_shstrndx;  // string name table在节头表中的索引index
+};
+bin目录下：readelf -e kernel可以查看kernel ELF文件相关信息
+13.函数栈：
+（1）参数->返回地址->ebp->局部变量
+（2）最后一行：ebp->kern_init函数的栈顶地址
+              eip->kern_init的返回地址，即bootmain函数调用kern_init对应指令的下一条指令地址
+              args->由于无参数，所以存放是ebp寄存器指向的栈顶往上第2-5个单元
+14.中断描述符表：
+int 0x80->软中断
