@@ -14,20 +14,31 @@
  * directly rather than using the generic single-entry routines.
  * */
 
+// 双向链表结构
 struct list_entry {
-    struct list_entry *prev, *next;
+    // 分别表示指向前一个结点和后一个结点的指针
+    struct list_entry *prev, *next; 
 };
 
+// 重命名
 typedef struct list_entry list_entry_t;
 
+// __attribute__((always_inline))表示强制内联
+// 初始化一个新的双向链表，双向链表的表头指针和表尾指针都指向elm，即只有一个结点elm的双向链表
 static inline void list_init(list_entry_t *elm) __attribute__((always_inline));
+// 将结点elm插到链表项listelm的后面
 static inline void list_add(list_entry_t *listelm, list_entry_t *elm) __attribute__((always_inline));
+// 将结点elm插到链表项listelm的前面
 static inline void list_add_before(list_entry_t *listelm, list_entry_t *elm) __attribute__((always_inline));
+// 等价于list_add
 static inline void list_add_after(list_entry_t *listelm, list_entry_t *elm) __attribute__((always_inline));
+// 删除链表项listem
 static inline void list_del(list_entry_t *listelm) __attribute__((always_inline));
 static inline void list_del_init(list_entry_t *listelm) __attribute__((always_inline));
 static inline bool list_empty(list_entry_t *list) __attribute__((always_inline));
+// 返回listelm后面的链表项
 static inline list_entry_t *list_next(list_entry_t *listelm) __attribute__((always_inline));
+// 返回listelm前面的链表项
 static inline list_entry_t *list_prev(list_entry_t *listelm) __attribute__((always_inline));
 
 static inline void __list_add(list_entry_t *elm, list_entry_t *prev, list_entry_t *next) __attribute__((always_inline));

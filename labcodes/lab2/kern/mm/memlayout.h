@@ -96,13 +96,22 @@ struct e820map {
  * physical page. In kern/mm/pmm.h, you can find lots of useful functions
  * that convert Page to other data types, such as phyical address.
  * */
+// 物理页结构
 struct Page {
+    // 映射此物理页的虚拟页个数。如果该页被页表引用，即在某页表中有一个页表项设置了一个虚拟页
+    //到这个Page管理的物理页的映射关系，就会把Page的ref加1；反之，若页表项取消，即映射关系解除,
+    //就会把Page的ref减1.
     int ref;                        // page frame's reference counter
+    // 物理页属性
+    // 包括PG_reserved和PG_property
     uint32_t flags;                 // array of flags that describe the status of the page frame
+    // 地址连续的空闲页的个数
     unsigned int property;          // the num of free block, used in first fit pm manager
+    // 双向链接各个Page结构的page_link
     list_entry_t page_link;         // free list link
 };
 
+// bit 1 表示此页是free的，可以被分配；bit 0 表示该页已经被分配，不能二次分配
 /* Flags describing the status of a page frame */
 #define PG_reserved                 0       // if this bit=1: the Page is reserved for kernel, cannot be used in alloc/free_pages; otherwise, this bit=0 
 #define PG_property                 1       // if this bit=1: the Page is the head page of a free memory block(contains some continuous_addrress pages), and can be used in alloc_pages; if this bit=0: if the Page is the the head page of a free memory block, then this Page and the memory block is alloced. Or this Page isn't the head page.
@@ -119,8 +128,11 @@ struct Page {
     to_struct((le), struct Page, member)
 
 /* free_area_t - maintains a doubly linked list to record free (unused) pages */
+// 管理所有连续内存空闲块的双向链表结构
 typedef struct {
+    // 双向链表指针
     list_entry_t free_list;         // the list header
+    // 记录当前空闲页个数
     unsigned int nr_free;           // # of free pages in this free list
 } free_area_t;
 

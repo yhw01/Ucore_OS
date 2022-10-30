@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "defs.h": "c",
+        "buddy.h": "c",
+        "string.h": "c",
+        "pmm.h": "c",
+        "*.def": "c"
+    }
+}

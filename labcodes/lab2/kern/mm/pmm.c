@@ -8,6 +8,8 @@
 #include <default_pmm.h>
 #include <sync.h>
 #include <error.h>
+#include <buddy.h>
+#include <slub.h>
 
 /* *
  * Task State Segment:
@@ -140,6 +142,9 @@ init_pmm_manager(void) {
     pmm_manager = &default_pmm_manager;
     cprintf("memory management: %s\n", pmm_manager->name);
     pmm_manager->init();
+    // pmm_manager = &buddy_pmm_manager;
+    // cprintf("memory management: %s\n", pmm_manager->name);
+    // pmm_manager->init();
 }
 
 //init_memmap - call pmm->init_memmap to build Page struct for free memory  
@@ -359,6 +364,30 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     }
     return NULL;          // (8) return page table entry
 #endif
+    // 首先找到页目录项，尝试获得页表
+    // PDX获得页目录项索引
+    // la虚拟地址
+    pde_t *pdep = &pgdir[PDX(la)];
+    // 检查这个页目录项是否存在，存在则直接返回找到的页目录项
+    if (!(*pdep & PTE_P)) {
+        struct Page *page;
+        // 页目录项不存在，且参数不要求创建新的页表，直接返回NULL
+        if (!create || (page = alloc_page()) == NULL) {
+            return NULL;
+        }
+        // 页目录项不存在，且参数要求创建新的页表
+        // 设置物理页被引用一次
+        set_page_ref(page, 1);
+        // 获得物理页的线性物理地址
+        uintptr_t pa = page2pa(page);
+        // 将物理地址转换成虚拟地址后，用memset函数清除页目录进行初始化
+        memset(KADDR(pa), 0, PGSIZE);
+        // 设置页目录项的权限
+        *pdep = pa | PTE_U | PTE_W | PTE_P;
+    }
+    // 返回虚拟地址la对应的页表项入口地址
+    // PTX获得页表项索引
+    return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)];
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir
@@ -404,6 +433,20 @@ page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
                                   //(6) flush tlb
     }
 #endif
+    // 检查这个页表项是否存在
+    if (*ptep & PTE_P) {
+        // 找到这个页表项对应的页
+        struct Page *page = pte2page(*ptep);
+        // 将这个页的引用数减一
+        if (page_ref_dec(page) == 0) {
+        // 如果这个页的引用数为0，那么释放此页
+            free_page(page);
+        }
+        // 清除页表项
+        *ptep = 0;
+        // 当修改的页表正在使用时，那么无效
+        tlb_invalidate(pgdir, la);
+    }
 }
 
 //page_remove - free an Page which is related linear address la and has an validated pte
